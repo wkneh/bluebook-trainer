@@ -4,14 +4,15 @@ import RichTextInput from './RichTextInput.jsx'
 import FileUpload from './FileUpload.jsx'
 import { editorHtmlToLlm } from '../utils/formatting.js'
 
-export default function Chat() {
-  const [messages, setMessages] = useState([])
+export default function Chat({ initialMessages, restoredMessages, ruleSetId, loading: externalLoading, onMessagesChange }) {
+  const [messages, setMessages] = useState(restoredMessages ?? [])
   const [streaming, setStreaming] = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
   const bottomRef = useRef(null)
   const messagesAreaRef = useRef(null)
   const isNearBottomRef = useRef(true)
   const abortRef = useRef(null)
+  const didAutoSend = useRef(false)
 
   useEffect(() => {
     const el = messagesAreaRef.current
@@ -32,55 +33,23 @@ export default function Chat() {
     return () => el.removeEventListener('scroll', onScroll)
   }, [])
 
-  const handleFileProcessed = useCallback((fileData) => {
-    setPendingFile(fileData)
-  }, [])
-
-  const clearFile = useCallback(() => {
-    setPendingFile(null)
-  }, [])
-
-  const handleStop = useCallback(() => {
-    abortRef.current?.abort()
-  }, [])
-
-  const handleSubmit = useCallback(async (editorHtml) => {
-    const llmContent = editorHtmlToLlm(editorHtml)
-
-    let fullContent = llmContent
-    let fileName = null
-
-    if (pendingFile) {
-      fileName = pendingFile.filename
-      fullContent = `[Uploaded file: ${pendingFile.filename}]\n\nFile contents:\n${pendingFile.text}\n\n${llmContent}`
-      setPendingFile(null)
+  useEffect(() => {
+    if (!streaming && messages.length > 0 && onMessagesChange) {
+      onMessagesChange(messages, ruleSetId)
     }
+  }, [messages, streaming, ruleSetId, onMessagesChange])
 
-    const userDisplayHtml = editorHtml
-      .replace(/<p>/g, '')
-      .replace(/<\/p>/g, '<br>')
-      .replace(/<br>$/, '')
-
-    const userMsg = {
-      role: 'user',
-      content: fullContent,
-      displayHtml: userDisplayHtml,
-      file: fileName,
-    }
-
-    const assistantMsg = {
-      role: 'assistant',
-      content: '',
-    }
-
-    setMessages(prev => [...prev, userMsg, assistantMsg])
+  const sendToApi = useCallback(async (allMessages) => {
     setStreaming(true)
+
+    const assistantMsg = { role: 'assistant', content: '' }
+    setMessages(prev => [...prev, assistantMsg])
 
     const controller = new AbortController()
     abortRef.current = controller
 
     try {
-      const apiMessages = [...messages, userMsg].map(m => ({
+      const apiMessages = allMessages.map(m => ({
         role: m.role,
         content: m.content,
       }))
@@ -88,7 +57,7 @@ export default function Chat() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({ messages: apiMessages, ruleSetId }),
         signal: controller.signal,
       })
 
@@ -139,7 +108,7 @@ export default function Chat() {
       }
     } catch (err) {
       if (err.name === 'AbortError') {
-        // Stopped by user -- keep whatever content streamed so far
+        // Stopped by user
       } else {
         setMessages(prev => {
           const updated = [...prev]
@@ -154,12 +123,67 @@ export default function Chat() {
       abortRef.current = null
       setStreaming(false)
     }
-  }, [messages, pendingFile])
+  }, [ruleSetId])
+
+  useEffect(() => {
+    if (!initialMessages || didAutoSend.current) return
+    didAutoSend.current = true
+
+    const userMsgs = initialMessages.map(m => ({
+      role: m.role,
+      content: m.content,
+      displayHtml: m.displayHtml,
+    }))
+
+    setMessages(userMsgs)
+    sendToApi(userMsgs)
+  }, [initialMessages, sendToApi])
+
+  const handleFileProcessed = useCallback((fileData) => {
+    setPendingFile(fileData)
+  }, [])
+
+  const clearFile = useCallback(() => {
+    setPendingFile(null)
+  }, [])
+
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort()
+  }, [])
+
+  const handleSubmit = useCallback(async (editorHtml) => {
+    const llmContent = editorHtmlToLlm(editorHtml)
+
+    let fullContent = llmContent
+    let fileName = null
+
+    if (pendingFile) {
+      fileName = pendingFile.filename
+      fullContent = `[Uploaded file: ${pendingFile.filename}]\n\nFile contents:\n${pendingFile.text}\n\n${llmContent}`
+      setPendingFile(null)
+    }
+
+    const userDisplayHtml = editorHtml
+      .replace(/<p>/g, '')
+      .replace(/<\/p>/g, '<br>')
+      .replace(/<br>$/, '')
+
+    const userMsg = {
+      role: 'user',
+      content: fullContent,
+      displayHtml: userDisplayHtml,
+      file: fileName,
+    }
+
+    const newMessages = [...messages, userMsg]
+    setMessages(newMessages)
+    sendToApi(newMessages)
+  }, [messages, pendingFile, sendToApi])
 
   return (
     <div className="chat-container">
       <div className="messages-area" ref={messagesAreaRef}>
-        {messages.length === 0 && (
+        {messages.length === 0 && !externalLoading && (
           <div className="empty-state">
             <div className="empty-icon">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -168,7 +192,8 @@ export default function Chat() {
               </svg>
             </div>
             <h2>Bluebook Citation Trainer</h2>
-            <p>Practice legal citations with proper formatting. Use the toolbar to apply <i>italics</i>, <span className="small-caps">Small Caps</span>, <b>bold</b>, and <u>underline</u>.</p>
+            <p>Select a rule set from the sidebar to study or quiz yourself, or type a question below.</p>
+            <p className="empty-hint">Use the toolbar to apply <i>italics</i>, <span className="small-caps">Small Caps</span>, <b>bold</b>, and <u>underline</u>.</p>
             <div className="shortcuts-grid">
               <div className="shortcut">
                 <kbd>⌘B</kbd> Bold
@@ -183,16 +208,13 @@ export default function Chat() {
                 <kbd>⌘⇧S</kbd> Small Caps
               </div>
             </div>
-            <div className="example-prompts">
-              <button onClick={() => {}} className="example-btn">
-                "How do I cite a Supreme Court case?"
-              </button>
-              <button onClick={() => {}} className="example-btn">
-                "Check my citation formatting"
-              </button>
-              <button onClick={() => {}} className="example-btn">
-                "What gets italicized vs. small caps?"
-              </button>
+          </div>
+        )}
+        {externalLoading && messages.length === 0 && (
+          <div className="empty-state">
+            <div className="loading-slides">
+              <span className="upload-spinner" />
+              <p>Loading slides...</p>
             </div>
           </div>
         )}

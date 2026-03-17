@@ -2,10 +2,12 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
+import fs from 'fs'
 import Anthropic from '@anthropic-ai/sdk'
 import { parseFile } from './server/fileParser.js'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import RULE_SETS from './src/ruleSets.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -24,8 +26,45 @@ const upload = multer({
 })
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const MODEL = 'claude-opus-4-6'
 
-const SYSTEM_PROMPT = `You are an expert Bluebook citation tutor. You help law students learn proper legal citation formatting according to The Bluebook: A Uniform System of Citation.
+app.get('/api/model', (_req, res) => {
+  res.json({ model: MODEL })
+})
+
+const slideCache = new Map()
+
+async function getSlideContent(ruleSetId) {
+  if (slideCache.has(ruleSetId)) return slideCache.get(ruleSetId)
+
+  const ruleSet = RULE_SETS.find(r => r.id === ruleSetId)
+  if (!ruleSet) return null
+
+  const filePath = path.join(__dirname, 'src', 'slides', ruleSet.file)
+  const buffer = fs.readFileSync(filePath)
+  const text = await parseFile(buffer, ruleSet.file, 'application/pdf')
+  slideCache.set(ruleSetId, text)
+  return text
+}
+
+app.get('/api/slides', (_req, res) => {
+  res.json(RULE_SETS.map(({ id, label }) => ({ id, label })))
+})
+
+app.get('/api/slides/:id', async (req, res) => {
+  const ruleSet = RULE_SETS.find(r => r.id === req.params.id)
+  if (!ruleSet) return res.status(404).json({ error: 'Rule set not found' })
+
+  try {
+    const content = await getSlideContent(ruleSet.id)
+    res.json({ id: ruleSet.id, label: ruleSet.label, content })
+  } catch (err) {
+    console.error(`Failed to parse slide ${ruleSet.file}:`, err)
+    res.status(500).json({ error: `Failed to parse slides: ${err.message}` })
+  }
+})
+
+const BASE_SYSTEM_PROMPT = `You are an expert Bluebook citation tutor. You help law students learn proper legal citation formatting according to The Bluebook: A Uniform System of Citation.
 
 CRITICAL: When you write citations or formatted text, you MUST use HTML tags to indicate formatting:
 - Use <i>text</i> for italics (case names, book titles, signals, etc.)
@@ -44,9 +83,28 @@ When correcting citations, clearly explain what formatting should be used and wh
 
 When the user uploads a document, analyze any citations in it for Bluebook compliance and provide feedback.`
 
+async function buildSystemPrompt(ruleSetId) {
+  if (!ruleSetId) return BASE_SYSTEM_PROMPT
+
+  try {
+    const content = await getSlideContent(ruleSetId)
+    if (!content) return BASE_SYSTEM_PROMPT
+
+    const ruleSet = RULE_SETS.find(r => r.id === ruleSetId)
+    return BASE_SYSTEM_PROMPT +
+      `\n\n--- BLUEBOOK RULES REFERENCE (${ruleSet.label}) ---\n` +
+      `Below are the training slides for ${ruleSet.label}. Use this as your authoritative reference when answering questions and evaluating citations:\n\n${content}`
+  } catch (err) {
+    console.error('Failed to load rule set for system prompt:', err.message)
+    return BASE_SYSTEM_PROMPT
+  }
+}
+
 app.post('/api/chat', async (req, res) => {
   try {
-    const { messages } = req.body
+    const { messages, ruleSetId } = req.body
+
+    const systemPrompt = await buildSystemPrompt(ruleSetId)
 
     const apiMessages = messages.map(m => ({
       role: m.role,
@@ -58,9 +116,10 @@ app.post('/api/chat', async (req, res) => {
     res.setHeader('Connection', 'keep-alive')
 
     const stream = anthropic.messages.stream({
-      model: 'claude-opus-4-6',
+      model: MODEL,
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      cache_control: { type: 'ephemeral' },
+      system: systemPrompt,
       messages: apiMessages,
       temperature: 0.3,
     })

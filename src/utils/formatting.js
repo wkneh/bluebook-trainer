@@ -30,7 +30,7 @@ export function llmToDisplayHtml(text) {
   let idx = 0
 
   // Pull out our known formatting tags and replace with placeholders
-  const TAGS = /(<\/?(?:i|b|u|em|strong)>|<sc>|<\/sc>)/gi
+  const TAGS = /(<\/?(?:i|b|u|em|strong|sup|sub)>|<sc>|<\/sc>)/gi
   let safe = text.replace(TAGS, (match) => {
     const key = `\x00${idx++}\x00`
     let replacement
