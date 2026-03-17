@@ -30,7 +30,7 @@ export function llmToDisplayHtml(text) {
   let idx = 0
 
   // Pull out our known formatting tags and replace with placeholders
-  const TAGS = /(<\/?(?:i|b|u|em|strong|sup|sub)>|<sc>|<\/sc>)/gi
+  const TAGS = /(<\/?(?:i|b|u|em|strong|sup|sub|fix)>|<sc>|<\/sc>)/gi
   let safe = text.replace(TAGS, (match) => {
     const key = `\x00${idx++}\x00`
     let replacement
@@ -41,6 +41,8 @@ export function llmToDisplayHtml(text) {
     else if (lower === '</strong>') replacement = '</b>'
     else if (lower === '<sc>') replacement = '<span class="small-caps">'
     else if (lower === '</sc>') replacement = '</span>'
+    else if (lower === '<fix>') replacement = '<div class="fix-citation">'
+    else if (lower === '</fix>') replacement = '</div>'
     else replacement = match
     placeholders.push({ key, replacement })
     return key
@@ -92,6 +94,22 @@ export function llmToDisplayHtml(text) {
   safe = safe.replace(/(<hr>)<br>/g, '$1')
 
   return safe
+}
+
+export function extractFixCitation(text) {
+  const match = text.match(/<fix>([\s\S]*?)<\/fix>/i)
+  if (!match) return null
+  return match[1].trim()
+}
+
+export function llmToEditorHtml(llmText) {
+  return llmText
+    .replace(/<i>/gi, '<em>')
+    .replace(/<\/i>/gi, '</em>')
+    .replace(/<b>/gi, '<strong>')
+    .replace(/<\/b>/gi, '</strong>')
+    .replace(/<sc>(.*?)<\/sc>/gi, '<span class="small-caps">$1</span>')
+    .replace(/\n/g, '')
 }
 
 export function stripHtml(html) {

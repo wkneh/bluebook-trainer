@@ -6,12 +6,13 @@ import RULE_SETS from './ruleSets.js'
 const QUIZ_PROMPT = (label) =>
   `Please quiz me interactively on ${label}. Follow these instructions exactly:\n` +
   `1. Present me with ONE citation at a time that contains an error related to ${label}.\n` +
-  `2. Wait for me to identify and fix the error before giving feedback.\n` +
-  `3. After I respond, tell me whether I was correct, explain the relevant Bluebook rule, and show the corrected citation with proper formatting.\n` +
-  `4. Then present the next question.\n` +
-  `5. Start with examples drawn directly from the training slides in your reference material.\n` +
-  `6. Once you've exhausted the slide examples, create new realistic citation problems that follow the same patterns and rules.\n` +
-  `7. Keep going until I say stop.\n\n` +
+  `2. IMPORTANT: Always wrap the citation I need to fix in <fix>...</fix> tags. For example: <fix><i>Smith v. Jones</i> 500 U.S. 100 (2000).</fix>\n` +
+  `3. Wait for me to identify and fix the error before giving feedback.\n` +
+  `4. After I respond, tell me whether I was correct, explain the relevant Bluebook rule, and show the corrected citation with proper formatting.\n` +
+  `5. Then present the next question (again wrapped in <fix> tags).\n` +
+  `6. Start with examples drawn directly from the training slides in your reference material.\n` +
+  `7. Once you've exhausted the slide examples, create new realistic citation problems that follow the same patterns and rules.\n` +
+  `8. Keep going until I say stop.\n\n` +
   `Start now with the first question.`
 
 const STUDY_PROMPT = (label) =>

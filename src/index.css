@@ -502,6 +502,17 @@ body {
   margin: 12px 0;
 }
 
+.fix-citation {
+  margin: 10px 0;
+  padding: 12px 16px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-left: 3px solid #f59e0b;
+  border-radius: 6px;
+  font-size: 0.94rem;
+  line-height: 1.7;
+}
+
 .message-file {
   display: inline-flex;
   align-items: center;

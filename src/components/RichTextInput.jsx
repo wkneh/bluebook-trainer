@@ -12,7 +12,7 @@ const TOOLBAR_BUTTONS = [
   { id: 'smallCaps', label: 'Sc', mark: 'smallCaps', title: 'Small Caps (⌘⇧S)', style: { fontVariant: 'small-caps', fontSize: '0.85em', fontWeight: 600 } },
 ]
 
-export default function RichTextInput({ onSubmit, disabled }) {
+export default function RichTextInput({ onSubmit, disabled, prefill }) {
   const submitRef = useRef(null)
 
   const doSubmit = useCallback(() => {
@@ -61,6 +61,13 @@ export default function RichTextInput({ onSubmit, disabled }) {
       editor.commands.clearContent()
     }
   }, [editor, onSubmit, disabled])
+
+  useEffect(() => {
+    if (editor && prefill) {
+      editor.commands.setContent(`<p>${prefill}</p>`)
+      requestAnimationFrame(() => editor.commands.focus('end'))
+    }
+  }, [editor, prefill])
 
   if (!editor) return null
 

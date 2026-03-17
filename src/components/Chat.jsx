@@ -2,12 +2,13 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import MessageBubble from './MessageBubble.jsx'
 import RichTextInput from './RichTextInput.jsx'
 import FileUpload from './FileUpload.jsx'
-import { editorHtmlToLlm } from '../utils/formatting.js'
+import { editorHtmlToLlm, extractFixCitation, llmToEditorHtml } from '../utils/formatting.js'
 
 export default function Chat({ initialMessages, restoredMessages, ruleSetId, loading: externalLoading, onMessagesChange }) {
   const [messages, setMessages] = useState(restoredMessages ?? [])
   const [streaming, setStreaming] = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
+  const [editorPrefill, setEditorPrefill] = useState(null)
   const bottomRef = useRef(null)
   const messagesAreaRef = useRef(null)
   const isNearBottomRef = useRef(true)
@@ -34,8 +35,16 @@ export default function Chat({ initialMessages, restoredMessages, ruleSetId, loa
   }, [])
 
   useEffect(() => {
-    if (!streaming && messages.length > 0 && onMessagesChange) {
-      onMessagesChange(messages, ruleSetId)
+    if (!streaming && messages.length > 0) {
+      if (onMessagesChange) onMessagesChange(messages, ruleSetId)
+
+      const lastMsg = messages[messages.length - 1]
+      if (lastMsg?.role === 'assistant') {
+        const fixContent = extractFixCitation(lastMsg.content)
+        if (fixContent) {
+          setEditorPrefill(llmToEditorHtml(fixContent))
+        }
+      }
     }
   }, [messages, streaming, ruleSetId, onMessagesChange])
 
@@ -175,6 +184,7 @@ export default function Chat({ initialMessages, restoredMessages, ruleSetId, loa
       file: fileName,
     }
 
+    setEditorPrefill(null)
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
     sendToApi(newMessages)
@@ -250,7 +260,7 @@ export default function Chat({ initialMessages, restoredMessages, ruleSetId, loa
         )}
         <div className="input-row">
           <FileUpload onFileProcessed={handleFileProcessed} disabled={streaming} />
-          <RichTextInput onSubmit={handleSubmit} disabled={streaming} />
+          <RichTextInput onSubmit={handleSubmit} disabled={streaming} prefill={editorPrefill} />
         </div>
       </div>
     </div>
